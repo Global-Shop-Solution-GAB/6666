@@ -1,0 +1,101 @@
+Program.Sub.Preflight.Start
+Program.Sub.Preflight.End
+
+'ARC#6666
+'CONNECTICUT SPRING & STAMPING
+'		Mar 2022 - Nam Le
+
+'hook#16504 POST_SAVED
+'screen: WIP to FG
+
+'BUSINESS CASE:  The customer would like to change the work order type from Linked to Master on linked
+'WOs when the current Master WO is closed through WIP to FG.
+
+'SOLUTION: We will develop a GAB script to look for a linked WO on the post-save hook during WIP to FG
+'of a Master WO.  If a linked WO is found, we will change the WO Type of the linked WO to Master and then
+'forward schedule the new master WO to ensure it is added to APS.
+
+Program.Sub.Main.Start
+
+f.Intrinsic.Control.Try
+
+	v.Local.sSQL.Declare(String)
+	v.Local.sRet.Declare(String)
+	v.Local.sJob.Declare(String)
+	v.Local.sSuffix.Declare(String)
+	v.Local.sJobClosed.Declare(String)
+	
+	v.Local.sJobClosed.Set(v.Passed.000012)
+	v.Local.sJob.Set(v.Passed.000003.Trim)
+	v.Local.sSuffix.Set(v.Passed.000004.Trim)
+	v.Local.iCounter.Declare(Long)
+
+
+	'Validations - Passed Var
+	'------------------------------------------------------------------
+	'exit if job is not closed
+	f.Intrinsic.Control.If(v.Local.sJobClosed,!=, "Y")
+		f.Intrinsic.Control.End
+	f.Intrinsic.Control.EndIf
+	
+	'exit if missing job
+	f.Intrinsic.Control.If(v.Passed.000003,=,"")
+		f.Intrinsic.Control.End
+	f.Intrinsic.Control.EndIf
+	'------------------------------------------------------------------
+	f.ODBC.Connection!Con.OpenCompanyConnection
+	
+	
+	
+	'check and get list of linked jobs
+	'------------------------------------------------------------------
+'	f.Intrinsic.String.Build("select SUBSTRING(O.PART,1,6) LJOB, SUBSTRING(O.PART,7,3) LSUFFIX, H.DATE_OPENED from V_JOB_OPERATIONS O left join V_JOB_HEADER H on H.JOB = LJOB and H.SUFFIX = LSUFFIX where O.LMO='X' and RTRIM(O.JOB)='{0}' and RTRIM(O.SUFFIX)='{1}'", v.Local.sJob, v.Local.sSuffix, v.Local.sSQL)
+	f.Intrinsic.String.Build("select SUBSTRING(PART,1,6) LJOB, SUBSTRING(PART,7,3) LSUFFIX from V_JOB_OPERATIONS where LMO='X' and RTRIM(JOB)='{0}' and RTRIM(SUFFIX)='{1}'", v.Local.sJob, v.Local.sSuffix, v.Local.sSQL)
+	f.Intrinsic.Control.If(v.DataTable.dtLinkedJob.Exists)
+		f.Data.Datatable.Close("dtLinkedJob")
+	f.Intrinsic.Control.EndIf
+	f.Data.Datatable.CreateFromSQL("dtLinkedJob", "Con", v.Local.sSQL, True)
+	f.Data.DataTable.AddColumn("dtLinkedJob", "DATE_OPENED", "Date", v.Ambient.Date)
+	'------------------------------------------------------------------
+	
+
+	
+	'Validations - No Records
+	'------------------------------------------------------------------
+	f.Intrinsic.Control.If(v.DataTable.dtLinkedJob.RowCount,=,0)
+		f.Intrinsic.Control.End
+	f.Intrinsic.Control.EndIf
+	'------------------------------------------------------------------
+	
+	
+	
+	'Linked Jobs exist
+	'Update Linked Jobs to Master
+	'Schedule forward
+	'------------------------------------------------------------------
+	f.Intrinsic.Control.For(v.Local.iCounter, 0, v.DataTable.dtLinkedJob.RowCount--, 1)
+		'update Job Type
+		f.Intrinsic.String.Build("update JOB_HEADER set JOB_TYPE='M', SCHEDULE_DIR = 1 where RTRIM(JOB)='{0}' and RTRIM(SUFFIX)='{1}'", v.DataTable.dtLinkedJob(v.Local.iCounter).LJOB!FieldValTrim, v.DataTable.dtLinkedJob(v.Local.iCounter).LSUFFIX!FieldValTrim, v.Local.sSQL)
+		f.ODBC.Connection!Con.Execute(v.Local.sSQL)
+		
+		'schedule forward
+		f.Global.APS.ScheduleJob(v.DataTable.dtLinkedJob(v.Local.iCounter).LJOB!FieldValTrim, v.DataTable.dtLinkedJob(v.Local.iCounter).LSUFFIX!FieldValTrim,"F", v.DataTable.dtLinkedJob(v.Local.iCounter).DATE_OPENED!FieldVal)
+		
+	f.Intrinsic.Control.Next(v.Local.iCounter)
+	'------------------------------------------------------------------
+	
+	
+	f.ODBC.Connection!Con.Close
+	
+f.Intrinsic.Control.Catch
+	f.Intrinsic.UI.Msgbox(v.Ambient.ErrorDescription)
+	f.ODBC.Connection!Con.Close
+	f.Intrinsic.Control.End
+f.Intrinsic.Control.EndTry
+
+Program.Sub.Main.End
+
+Program.Sub.Comments.Start
+${$5$}$3.0.0.0$}$1
+${$6$}$nle$}$20220312173429987$}$kjzCRYkA6UEoRnCwndYnRWJ49fy3Ke4BlZleXa5VIA9f1EYUzhBhL5gIkGy/TW+b
+Program.Sub.Comments.End
